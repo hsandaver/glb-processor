@@ -9,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 
 from preview import preview_html
+from manifest import build_manifest
 from processor import ConversionError, Options, convert_glb, image_bytes, inspect_glb, open_image, parse_glb
 
 st.set_page_config(page_title="GLB texture processor", page_icon="◈", layout="wide")
@@ -85,6 +86,24 @@ if result and result[0] == signature:
     right.download_button("Download conversion report", json.dumps(report, indent=2), file_name=f"{stem}-report.json", mime="application/json", width="stretch")
     with st.expander("Conversion details"):
         st.json(report)
+    st.subheader("Universal Viewer manifest")
+    st.write("Download a manifest that points Universal Viewer to your processed GLB. Enter the URLs where you will host both files.")
+    title = st.text_input("Model title", value=stem, key=f"manifest_title_{hashlib.sha256(data).hexdigest()}")
+    model_url = st.text_input("Public GLB URL", placeholder=f"https://your-host.org/models/{stem}-uv.glb", key="manifest_model_url")
+    manifest_url = st.text_input("Public manifest URL", placeholder=f"https://your-host.org/models/{stem}-manifest.json", key="manifest_url")
+    manifest_data = None
+    if model_url and manifest_url:
+        try:
+            manifest_data = build_manifest(model_url, manifest_url, title)
+        except ValueError as exc:
+            st.error(str(exc))
+    st.download_button("Download IIIF manifest", json.dumps(manifest_data, indent=2, ensure_ascii=False) if manifest_data else "",
+                       file_name=f"{stem}-manifest.json", mime="application/json", disabled=manifest_data is None, width="stretch")
+    if manifest_data:
+        with st.expander("Inspect the manifest"):
+            st.json(manifest_data)
+    st.caption("Upload both files to those URLs, then open the manifest URL in Universal Viewer. Use HTTPS and allow cross-origin requests for both files. URLs are not checked for availability.")
+    st.caption("Exports the Presentation 3 Model convention used by Universal Viewer 4. The app's preview loads the GLB directly; it does not load this manifest. This creates a new single-model manifest and does not copy annotations from an existing one.")
 elif result:
     st.info("Settings or input changed. Process again to update the output.")
 
@@ -97,10 +116,10 @@ if st.checkbox("Load interactive preview", value=True):
 
 with st.expander("Use the output in Universal Viewer"):
     st.markdown("""1. Upload the processed GLB to your model host using a new filename.
-2. Change the model URL in the IIIF manifest to that file. Keep its format as `model/gltf-binary`.
-3. Serve the GLB over HTTPS with `Content-Type: model/gltf-binary` and permit cross-origin requests from your viewer. Reload the viewer with the updated manifest.
+2. Download a manifest using the public URLs above, or update the model URL in your existing manifest. Keep its format as `model/gltf-binary`.
+3. Serve the GLB over HTTPS with `Content-Type: model/gltf-binary` and the manifest with `Content-Type: application/json`. Permit cross-origin requests for both. Open the hosted manifest URL in Universal Viewer.
 
 If this preview shows colour but your viewer remains grey, check the model URL requested by Universal Viewer, cached files, browser errors and the UV version. Replacing the file alone will not fix a manifest that points to a different model.
 
-This app processes GLB assets. It does not publish files or change your IIIF manifest.
+This app creates downloadable files. Upload them to your host to make them available to Universal Viewer.
 """)

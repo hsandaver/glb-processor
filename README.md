@@ -35,6 +35,10 @@ Upload the output under a new filename and update the existing manifest's model 
 
 The preview uses model-viewer 4.1.0, loaded from jsDelivr. Conversion runs locally and does not need the CDN. Model data is passed to the browser as an embedded blob. The app does not upload models to a third-party service, publish an IIIF manifest, or guarantee support in all IIIF viewers.
 
+After processing, the **Universal Viewer manifest** section lets you enter a title, the public GLB URL and the public manifest URL, then download the manifest JSON. Upload the GLB and JSON to those locations. Serve JSON as `application/json` and permit cross-origin requests for both files. Open the hosted manifest URL in Universal Viewer. The app validates URL syntax but does not check the host.
+
+The export follows the Presentation 3 `Model` convention used by Universal Viewer 4's 3D examples. It creates a new manifest with one model, without importing existing annotations or metadata. It is not a Presentation 4 Scene manifest or a promise of support in other viewers. The in-app preview loads the GLB directly and does not consume a manifest.
+
 If the preview has textures but your Universal Viewer does not, check the fetched model URL, UV version and browser console. A manifest pointing to an untextured derivative cannot be fixed by modifying a different GLB.
 
 References: [UV model renderer](https://github.com/UniversalViewer/universalviewer/blob/dev/src/content-handlers/iiif/modules/uv-modelviewercenterpanel-module/ModelViewerCenterPanel.ts), [glTF unlit materials](https://github.com/KhronosGroup/glTF/tree/main/extensions/2.0/Khronos/KHR_materials_unlit), [model-viewer documentation](https://modelviewer.dev/).
