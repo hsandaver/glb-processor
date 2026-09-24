@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from PIL import Image, UnidentifiedImageError
 
 
+# Bump when app.py needs a new processor interface or inspection result, so a hosted update
+# refreshes a cached import and cached inspections.
+PROCESSOR_API_VERSION = 1
 GENERATOR = "GLB texture processor"
 
 

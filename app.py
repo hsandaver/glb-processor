@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 from dataclasses import asdict
@@ -11,7 +12,13 @@ import streamlit as st
 from archive import ArchiveError, list_glbs, read_glb_from_zip, replace_glb_in_zip
 from preview import preview_html
 from manifest import build_manifest
-from processor import ConversionError, Options, convert_glb, image_bytes, inspect_glb, open_image, parse_glb
+import processor
+
+# A hosted update can rerun this file with the previous processor module still imported.
+# Refresh it only when its interface is out of date, not on every rerun.
+if getattr(processor, "PROCESSOR_API_VERSION", None) != 1:
+    importlib.reload(processor)
+from processor import ConversionError, Options, convert_glb, image_bytes, inspect_glb, open_image, parse_glb  # noqa: E402
 
 st.set_page_config(page_title="GLB texture processor", page_icon="◈", layout="wide")
 st.title("GLB texture processor")
@@ -62,7 +69,8 @@ options = Options(mode, size, quality, double_sided, z_up, brighten)
 signature = hashlib.sha256(data).hexdigest() + json.dumps(asdict(options), sort_keys=True)
 
 @st.cache_data(max_entries=2, show_spinner=False)
-def inspect_cached(raw):
+def inspect_cached(raw, processor_version):
+    """`processor_version` is part of the cache key, so results from an earlier processor aren't reused."""
     return inspect_glb(raw)
 
 
@@ -71,7 +79,7 @@ def rebuild_zip_cached(raw, model_path, processed):
     return replace_glb_in_zip(raw, model_path, processed)
 
 try:
-    details = inspect_cached(data)
+    details = inspect_cached(data, processor.PROCESSOR_API_VERSION)
 except (ConversionError, KeyError, IndexError, TypeError, ValueError) as exc:
     st.error(f"Cannot inspect this GLB: {exc}")
     st.stop()
