@@ -8,6 +8,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from archive import ArchiveError, list_glbs, read_glb_from_zip, replace_glb_in_zip
 from preview import preview_html
 from manifest import build_manifest
 from processor import ConversionError, Options, convert_glb, image_bytes, inspect_glb, open_image, parse_glb
@@ -29,15 +30,29 @@ with st.sidebar:
     double_sided = st.checkbox("Show both sides of textured surfaces", value=False)
     z_up = st.checkbox("Rotate Z-up model to Y-up", value=False, help="Use if the model lies on its side. Changes spatial coordinates and may affect existing IIIF annotations.")
 
-uploaded = st.file_uploader("Choose a GLB", type=["glb"])
+uploaded = st.file_uploader("Choose a GLB or ZIP", type=["glb", "zip"])
+zip_data = None
+zip_name = None
+zip_model_path = None
 sample = Path(os.environ.get("GLB_SAMPLE_PATH", "artifacts/input.glb"))
 use_sample = st.checkbox("Use the supplied bundle-medium.glb", value=True) if sample.is_file() and uploaded is None else False
 if uploaded is not None:
     data, name = uploaded.getvalue(), Path(uploaded.name).name
+    if name.lower().endswith(".zip"):
+        zip_data, zip_name = data, name
+        try:
+            model_paths = list_glbs(zip_data)
+            zip_model_path = st.selectbox("GLB to process", model_paths,
+                                          key=f"zip_model_{hashlib.sha256(zip_data).hexdigest()}")
+            data = read_glb_from_zip(zip_data, zip_model_path)
+            name = Path(zip_model_path).name
+        except ArchiveError as exc:
+            st.error(str(exc))
+            st.stop()
 elif use_sample:
     data, name = sample.read_bytes(), "bundle-medium.glb"
 else:
-    st.info("Upload a GLB to inspect its textures and create a version for Universal Viewer.")
+    st.info("Upload a GLB or a ZIP containing a GLB to create a version for Universal Viewer.")
     st.stop()
 
 options = Options(mode, size, quality, double_sided, z_up)
@@ -46,6 +61,11 @@ signature = hashlib.sha256(data).hexdigest() + json.dumps(asdict(options), sort_
 @st.cache_data(max_entries=2, show_spinner=False)
 def inspect_cached(raw):
     return inspect_glb(raw)
+
+
+@st.cache_data(max_entries=1, show_spinner=False)
+def rebuild_zip_cached(raw, model_path, processed):
+    return replace_glb_in_zip(raw, model_path, processed)
 
 try:
     details = inspect_cached(data)
@@ -86,6 +106,29 @@ if result and result[0] == signature:
     right.download_button("Download conversion report", json.dumps(report, indent=2), file_name=f"{stem}-report.json", mime="application/json", width="stretch")
     with st.expander("Conversion details"):
         st.json(report)
+    st.subheader("Updated ZIP bundle")
+    if zip_data is None:
+        original_zip = st.file_uploader("Original ZIP to update", type=["zip"], key="original_zip")
+        if original_zip is not None:
+            zip_data, zip_name = original_zip.getvalue(), Path(original_zip.name).name
+            try:
+                model_paths = list_glbs(zip_data)
+                matching_paths = [path for path in model_paths if Path(path).name == name]
+                default_index = model_paths.index(matching_paths[0]) if len(matching_paths) == 1 else 0
+                zip_model_path = st.selectbox("GLB to replace", model_paths, index=default_index,
+                                              key=f"zip_target_{hashlib.sha256(zip_data).hexdigest()}_{name}")
+            except ArchiveError as exc:
+                st.error(str(exc))
+    if zip_data is not None and zip_model_path is not None:
+        st.caption(f"Replaces {zip_model_path} with the processed GLB. Other files and folder paths are preserved.")
+        try:
+            with st.spinner("Building updated ZIP…"):
+                updated_zip = rebuild_zip_cached(zip_data, zip_model_path, output)
+            st.download_button("Download updated ZIP", updated_zip,
+                               file_name=f"{Path(zip_name).stem}-processed.zip", mime="application/zip",
+                               type="primary", width="stretch")
+        except ArchiveError as exc:
+            st.error(str(exc))
     st.subheader("Universal Viewer manifest")
     st.write("Download a manifest that points Universal Viewer to your processed GLB. Enter the URLs where you will host both files.")
     title = st.text_input("Model title", value=stem, key=f"manifest_title_{hashlib.sha256(data).hexdigest()}")

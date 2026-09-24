@@ -15,6 +15,10 @@ streamlit run app.py
 
 Open the localhost URL printed by Streamlit. Upload a GLB, choose the appearance, and click **Process GLB**. The original file stays untouched. A supplied sample at `artifacts/input.glb` appears automatically. Set `GLB_SAMPLE_PATH` to use another local sample.
 
+To update a ZIP bundle, upload the ZIP and select the GLB to process. After processing, click **Download updated ZIP** to save `<original-name>-processed.zip`. The processed model replaces the selected entry at its original path, so references to that path still work. Other files, including manifests, annotations and other models, keep their contents. Folder paths, timestamps, permissions and ZIP comments are retained. The original ZIP stays untouched.
+
+If you already uploaded a standalone GLB, supply its original ZIP in **Updated ZIP bundle** after processing and select the **GLB to replace**. This also offers the updated ZIP download. ZIPs with no GLBs or duplicate GLB paths are rejected. Password-protected entries and unsupported ZIP compression cannot be read. ZIP files are rebuilt in memory.
+
 ## Settings
 
 - **Photographed colour** uses `KHR_materials_unlit`. It displays the base-colour photographs without lighting and removes normal, occlusion, metallic and emissive maps from textured materials. This is the default for scanned objects.
