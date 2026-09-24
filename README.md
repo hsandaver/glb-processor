@@ -25,6 +25,7 @@ If you already uploaded a standalone GLB, supply its original ZIP in **Updated Z
 - **Simple shaded surface** retains viewer lighting with matte materials and the same texture simplification.
 - **Keep original materials** preserves material settings and all used images. Images still get resized and re-encoded.
 - **Maximum texture edge** defaults to 2048 pixels. Images retain their aspect ratio and are never enlarged. RGB images become JPEG and images with alpha become PNG.
+- **Brighten colour photographs** lifts the colour textures by 0 to 4 stops. Use it for dark scans. Universal Viewer 4.4.4 sets no exposure or environment on its model-viewer element and has no config option for either, so lighting can't be adjusted in the viewer. The app converts each colour value to linear light, doubles it per stop and converts back, much like model-viewer's `exposure` attribute. Values past white clip. Normal, occlusion and metallic maps stay unchanged. If a colour image is also used by another map, the app refuses to brighten it.
 - **Rotate Z-up model to Y-up** is optional and off by default. It changes scene coordinates. Existing spatial annotations must be transformed to match.
 
 The app preserves material colour factors, UV transforms, transparency, scene structure and animation data. It rejects external images and unsupported extensions, including Draco, Meshopt and Basis/KTX2 compression, rather than silently removing them. It cannot reconstruct absent textures or UV coordinates. Built-in checks are not a full glTF specification validator.

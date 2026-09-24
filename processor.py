@@ -22,6 +22,7 @@ class Options:
     jpeg_quality: int = 92
     double_sided: bool = False
     z_up: bool = False
+    brighten_stops: float = 0.0
 
 
 def parse_glb(data: bytes) -> tuple[dict, bytes]:
@@ -115,6 +116,17 @@ def inspect_glb(data: bytes) -> dict:
             "textured_materials": sum("baseColorTexture" in m.get("pbrMetallicRoughness", {}) for m in doc.get("materials", []))}
 
 
+def exposure_table(stops: float) -> list[int]:
+    """Map 8-bit sRGB values through a linear-light gain of 2**stops, as viewer exposure does."""
+    table = []
+    for value in range(256):
+        c = value / 255
+        linear = min(1.0, (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4) * 2 ** stops)
+        c = linear * 12.92 if linear <= 0.0031308 else 1.055 * linear ** (1 / 2.4) - 0.055
+        table.append(round(c * 255))
+    return table
+
+
 def walk(value):
     if isinstance(value, dict):
         yield value
@@ -138,6 +150,8 @@ def _convert(data: bytes, options: Options) -> tuple[bytes, dict]:
         raise ConversionError("Unknown material mode.")
     if options.max_texture_size not in {1024, 2048, 4096, 8192} or not 1 <= options.jpeg_quality <= 100:
         raise ConversionError("Invalid texture size or JPEG quality.")
+    if not 0 <= options.brighten_stops <= 4:
+        raise ConversionError("Brightening must be between 0 and 4 stops.")
     doc, binary = parse_glb(data)
     # Avoid pruning extension resources whose reference semantics are unknown.
     supported = {"KHR_materials_unlit", "KHR_texture_transform", "KHR_mesh_quantization"}
@@ -180,13 +194,17 @@ def _convert(data: bytes, options: Options) -> tuple[bytes, dict]:
                         uv = info.get("extensions", {}).get("KHR_texture_transform", {}).get("texCoord", info.get("texCoord", 0))
                         if f"TEXCOORD_{uv}" not in primitive.get("attributes", {}):
                             raise ConversionError(f"A textured mesh is missing TEXCOORD_{uv}. Re-export with UV coordinates.")
-    infos = [info for material in doc.get("materials", []) for obj in walk(material)
+    slots = [(key, info) for material in doc.get("materials", []) for obj in walk(material)
              for key, info in obj.items() if key.endswith("Texture") and isinstance(info, dict) and "index" in info]
+    infos = [info for _, info in slots]
     texture_ids = sorted({info["index"] for info in infos})
     texture_map = {old: new for new, old in enumerate(texture_ids)}
     textures = [doc["textures"][i] for i in texture_ids]
     for info in infos:
         info["index"] = texture_map[info["index"]]
+    colour_ids = {textures[info["index"]]["source"] for key, info in slots if key == "baseColorTexture"}
+    if options.brighten_stops and colour_ids & {textures[info["index"]]["source"] for key, info in slots if key != "baseColorTexture"}:
+        raise ConversionError("A colour texture is also used as another map, so it cannot be brightened on its own.")
     image_ids = sorted({t["source"] for t in textures})
     image_map = {old: new for new, old in enumerate(image_ids)}
     images = [doc["images"][i] for i in image_ids]
@@ -197,6 +215,9 @@ def _convert(data: bytes, options: Options) -> tuple[bytes, dict]:
         alpha = "A" in im.getbands() or "transparency" in im.info
         im = im.convert("RGBA" if alpha else "RGB")
         im.thumbnail((options.max_texture_size, options.max_texture_size), Image.Resampling.LANCZOS)
+        brightened = bool(options.brighten_stops) and old_id in colour_ids
+        if brightened:
+            im = im.point(exposure_table(options.brighten_stops) * 3 + (list(range(256)) if alpha else []))
         encoded = io.BytesIO()
         fmt = "PNG" if alpha else "JPEG"
         im.save(encoded, format=fmt, **({"quality": options.jpeg_quality, "subsampling": 0} if fmt == "JPEG" else {}))
@@ -206,7 +227,8 @@ def _convert(data: bytes, options: Options) -> tuple[bytes, dict]:
         img.pop("uri", None)
         img["mimeType"] = "image/png" if alpha else "image/jpeg"
         replacements[img["bufferView"]] = encoded.getvalue()
-        changes.append(f"Image {old_id}: {original_size[0]} × {original_size[1]} → {im.width} × {im.height}, {fmt}.")
+        changes.append(f"Image {old_id}: {original_size[0]} × {original_size[1]} → {im.width} × {im.height}, {fmt}"
+                       + (f", brightened {options.brighten_stops:+g} stops." if brightened else "."))
     for texture in textures:
         texture["source"] = image_map[texture["source"]]
     sampler_ids = sorted({t["sampler"] for t in textures if "sampler" in t})

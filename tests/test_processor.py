@@ -5,7 +5,7 @@ import struct
 import pytest
 from PIL import Image
 
-from processor import ConversionError, Options, convert_glb, image_bytes, parse_glb, write_glb
+from processor import ConversionError, Options, convert_glb, exposure_table, image_bytes, parse_glb, write_glb
 
 
 def fixture_glb(alpha=False, uri=False):
@@ -90,3 +90,42 @@ def test_quantization_declaration_survives():
     out, _ = convert_glb(write_glb(doc, binary))
     converted, _ = parse_glb(out)
     assert "KHR_mesh_quantization" in converted["extensionsRequired"]
+
+
+def test_brightening_changes_colour_texture_only():
+    out, report = convert_glb(fixture_glb(), Options(mode="preserve", brighten_stops=1))
+    doc, binary = parse_glb(out)
+    colour = Image.open(io.BytesIO(image_bytes(doc, binary, 0))).getpixel((8, 8))
+    normal = Image.open(io.BytesIO(image_bytes(doc, binary, 1))).getpixel((8, 8))
+    expected = [exposure_table(1)[v] for v in (180, 70, 20)]
+    assert all(abs(a - b) <= 3 for a, b in zip(colour, expected))
+    assert all(abs(a - b) <= 3 for a, b in zip(normal, (180, 70, 20)))
+    assert "brightened +1 stops" in report["changes"][0]
+
+
+def test_brightening_keeps_alpha():
+    out, _ = convert_glb(fixture_glb(alpha=True), Options(brighten_stops=2))
+    doc, binary = parse_glb(out)
+    im = Image.open(io.BytesIO(image_bytes(doc, binary, 0)))
+    assert im.getpixel((0, 0)) == tuple(exposure_table(2)[v] for v in (180, 70, 20)) + (128,)
+
+
+def test_exposure_table_keeps_black_and_white():
+    table = exposure_table(3)
+    assert table[0] == 0 and table[255] == 255 and table == sorted(table)
+    assert exposure_table(0) == list(range(256))
+
+
+def test_brightening_rejects_shared_colour_texture():
+    doc, binary = parse_glb(fixture_glb())
+    doc["textures"][1]["source"] = 0
+    source = write_glb(doc, binary)
+    with pytest.raises(ConversionError, match="another map"):
+        convert_glb(source, Options(mode="preserve", brighten_stops=1))
+    convert_glb(source, Options(mode="unlit", brighten_stops=1))
+
+
+@pytest.mark.parametrize("stops", [-1, 4.5, float("nan")])
+def test_brightening_range_is_checked(stops):
+    with pytest.raises(ConversionError, match="stops"):
+        convert_glb(fixture_glb(), Options(brighten_stops=stops))

@@ -27,6 +27,9 @@ with st.sidebar:
     size = st.select_slider("Maximum texture edge", options=[1024, 2048, 4096, 8192], value=2048, format_func=lambda x: f"{x} px")
     quality = st.slider("JPEG quality", 70, 100, 92)
     st.caption("Images are re-encoded. Transparent images remain PNG. Geometry is kept at its original resolution.")
+    brighten = st.slider("Brighten colour photographs", 0.0, 4.0, 0.0, 0.5, format="+%.1f stops")
+    st.caption("Universal Viewer has no lighting or exposure setting, so this writes the change into the colour textures. "
+               "Each stop doubles the light. +2 stops looks like exposure 4 in model-viewer. Highlights past white clip.")
     double_sided = st.checkbox("Show both sides of textured surfaces", value=False)
     z_up = st.checkbox("Rotate Z-up model to Y-up", value=False, help="Use if the model lies on its side. Changes spatial coordinates and may affect existing IIIF annotations.")
 
@@ -55,7 +58,7 @@ else:
     st.info("Upload a GLB or a ZIP containing a GLB to create a version for Universal Viewer.")
     st.stop()
 
-options = Options(mode, size, quality, double_sided, z_up)
+options = Options(mode, size, quality, double_sided, z_up, brighten)
 signature = hashlib.sha256(data).hexdigest() + json.dumps(asdict(options), sort_keys=True)
 
 @st.cache_data(max_entries=2, show_spinner=False)
