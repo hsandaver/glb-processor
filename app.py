@@ -80,6 +80,9 @@ cols = st.columns(4)
 for col, title, value in zip(cols, ["File size", "Meshes", "Textured materials", "Embedded images"],
                              [f"{len(data) / 1_000_000:.2f} MB", details["meshes"], details["textured_materials"], len(details["images"])]):
     col.metric(title, value)
+if details["brighten_stops"]:
+    st.info(f"This app already brightened this GLB by {details['brighten_stops']:+g} stops. "
+            "Brightening it again adds to that, and the output records the total.")
 
 with st.expander("Inspect the input textures"):
     st.dataframe(details["images"], hide_index=True, width="stretch")

@@ -5,7 +5,8 @@ import struct
 import pytest
 from PIL import Image
 
-from processor import ConversionError, Options, convert_glb, exposure_table, image_bytes, parse_glb, write_glb
+from processor import (ConversionError, Options, convert_glb, exposure_table, image_bytes, inspect_glb, parse_glb,
+                       write_glb)
 
 
 def fixture_glb(alpha=False, uri=False):
@@ -123,6 +124,29 @@ def test_brightening_rejects_shared_colour_texture():
     with pytest.raises(ConversionError, match="another map"):
         convert_glb(source, Options(mode="preserve", brighten_stops=1))
     convert_glb(source, Options(mode="unlit", brighten_stops=1))
+
+
+def test_brightening_is_recorded_and_adds_up_when_processed_again():
+    once, _ = convert_glb(fixture_glb(), Options(brighten_stops=1.5))
+    doc, _ = parse_glb(once)
+    assert doc["asset"]["generator"] == "GLB texture processor"
+    assert doc["asset"]["extras"] == {"brightenStops": 1.5}
+    assert inspect_glb(once)["brighten_stops"] == 1.5
+    twice, report = convert_glb(once, Options(brighten_stops=1))
+    assert parse_glb(twice)[0]["asset"]["extras"]["brightenStops"] == 2.5
+    assert "already brightened +1.5 stops" in report["changes"][-1]
+    again, _ = convert_glb(twice)
+    assert parse_glb(again)[0]["asset"]["extras"]["brightenStops"] == 2.5
+
+
+def test_brightening_record_keeps_other_extras_and_ignores_other_tools():
+    doc, binary = parse_glb(fixture_glb())
+    doc["asset"]["extras"] = {"brightenStops": 3, "source": "scan"}  # not written by this app, so not trusted
+    out, _ = convert_glb(write_glb(doc, binary), Options(brighten_stops=1))
+    assert parse_glb(out)[0]["asset"]["extras"] == {"brightenStops": 1, "source": "scan"}
+    assert inspect_glb(fixture_glb())["brighten_stops"] == 0
+    out, _ = convert_glb(fixture_glb())
+    assert parse_glb(out)[0]["asset"]["extras"] == {"brightenStops": 0}
 
 
 @pytest.mark.parametrize("stops", [-1, 4.5, float("nan")])

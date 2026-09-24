@@ -5,10 +5,14 @@ import base64
 import copy
 import io
 import json
+import math
 import struct
 from dataclasses import dataclass
 
 from PIL import Image, UnidentifiedImageError
+
+
+GENERATOR = "GLB texture processor"
 
 
 class ConversionError(ValueError):
@@ -103,6 +107,16 @@ def open_image(raw: bytes) -> Image.Image:
         raise ConversionError("A texture cannot be decoded as a standard image. Re-export it as PNG or JPEG.") from exc
 
 
+def recorded_stops(doc: dict) -> float:
+    """Return the brightening this app recorded in a GLB it made, or 0 for any other GLB."""
+    asset = doc.get("asset", {})
+    extras = asset.get("extras")
+    if asset.get("generator") != GENERATOR or not isinstance(extras, dict):
+        return 0.0
+    stops = extras.get("brightenStops", 0)
+    return float(stops) if isinstance(stops, (int, float)) and not isinstance(stops, bool) and math.isfinite(stops) else 0.0
+
+
 def inspect_glb(data: bytes) -> dict:
     doc, binary = parse_glb(data)
     images = []
@@ -112,7 +126,7 @@ def inspect_glb(data: bytes) -> dict:
                        "format": im.format, "declared_type": image.get("mimeType", "data URI")})
     return {"bytes": len(data), "meshes": len(doc.get("meshes", [])),
             "materials": len(doc.get("materials", [])), "images": images,
-            "extensions": doc.get("extensionsUsed", []),
+            "extensions": doc.get("extensionsUsed", []), "brighten_stops": recorded_stops(doc),
             "textured_materials": sum("baseColorTexture" in m.get("pbrMetallicRoughness", {}) for m in doc.get("materials", []))}
 
 
@@ -286,7 +300,16 @@ def _convert(data: bytes, options: Options) -> tuple[bytes, dict]:
             doc[key] = entries
         else:
             doc.pop(key, None)
-    doc.setdefault("asset", {})["generator"] = "GLB texture processor"
+    # Record the total brightening since the original scan. Brightening a GLB this app made adds to its earlier stops.
+    stops = recorded_stops(doc) + options.brighten_stops
+    asset = doc.setdefault("asset", {})
+    extras = asset.setdefault("extras", {})
+    if isinstance(extras, dict):
+        extras["brightenStops"] = stops
+        if stops != options.brighten_stops:
+            changes.append(f"The input was already brightened {stops - options.brighten_stops:+g} stops, "
+                           f"so the output records {stops:+g} stops in total.")
+    asset["generator"] = GENERATOR
     result = write_glb(doc, bytes(output))
     return result, {"input_bytes": len(data), "output_bytes": len(result), "material_mode": options.mode,
                     "textured_materials": textured, "retained_images": len(images), "changes": changes,
